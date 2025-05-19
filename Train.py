@@ -1,38 +1,38 @@
-import pandas as pd
-from sklearn.linear_model import LogisticRegression
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import accuracy_score, classification_report
-from sklearn.preprocessing import StandardScaler
+import pandas as pd
+import numpy as np
+
+# dataset
+solarData = pd.read_csv('solar_clean_data.csv')
 
 
-solarData=pd.read_csv('solar_clean_data.csv')
-# print(solarData)
+# Features and target
+X = solarData[['dust_value', 'voltage', 'current']].values
+y = LabelEncoder().fit_transform(solarData['decision'])
 
-# selecting columns for training
-X=solarData[['dust_value','voltage','current']]
-
-# converting decision to numerics
-
-enc=LabelEncoder()
-y=enc.fit_transform(solarData['decision'])
-
-
-
-
-# splitting data
-Xtrain,Xtest,yTrain,yTest=train_test_split(X,y,test_size=0.2,random_state=42)
-
-# scaling
+# Scale features
 scaler = StandardScaler()
-Xtrain_scaled = scaler.fit_transform(Xtrain)
-Xtest_scaled = scaler.transform(Xtest)
+X_scaled = scaler.fit_transform(X)
 
-# training model
-logistic=LogisticRegression()
-logistic.fit(Xtrain_scaled, yTrain)
+# Split data
+Xtrain, Xtest, ytrain, ytest = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
 
-#evaluation
-y_pred = logistic.predict(Xtest_scaled)
-print("Accuracy:", accuracy_score(yTest, y_pred))
-print(classification_report(yTest, y_pred))
+# logistic regression as 1-layer NN with sigmoid
+model = Sequential([
+    Dense(1, activation='sigmoid', input_shape=(3,))
+])
+
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+
+model.fit(Xtrain, ytrain, epochs=100, batch_size=16, verbose=0)
+
+loss, acc = model.evaluate(Xtest, ytest, verbose=0)
+print("TF Logistic Regression Accuracy:", acc)
+
+# Save the model
+model.export('logistic_model')  # saves a folder named 'logistic_model'
+
