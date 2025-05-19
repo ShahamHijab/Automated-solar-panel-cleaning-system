@@ -9,7 +9,7 @@ start_time = datetime.now()
 
 with open("solar_clean_data.csv", "w", newline="") as file:
     writer = csv.writer(file)
-    writer.writerow(["date", "time", "dust_value", "voltage", "current", "label"])
+    writer.writerow(["date", "time", "dust_value", "voltage", "current", "decision"])
 # generating data
     for i in range(num_records):
         now = start_time + timedelta(minutes=10 * i)
@@ -23,8 +23,8 @@ with open("solar_clean_data.csv", "w", newline="") as file:
         current = round(random.uniform(2000, 3000) * (1 - dust_value / 15), 2) # panel current
 
         # label
-        label = "needs_cleaning" if dust_value > 3 and current < 2000 else "clean"
+        decision = "needs_cleaning" if dust_value > 3 and current < 2000 else "clean"
 
-        writer.writerow([date, time, dust_value, voltage, current, label])
+        writer.writerow([date, time, dust_value, voltage, current, decision])
 
 print(" Dataset  saved as 'solar_clean_data.csv'")
