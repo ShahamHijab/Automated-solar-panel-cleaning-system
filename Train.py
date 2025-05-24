@@ -11,7 +11,7 @@ solarData = pd.read_csv('solar_clean_data.csv')
 
 
 # Features and target
-X = solarData[['dust_value', 'voltage', 'current']].values
+X = solarData[['dust_value', 'voltage']].values
 y = LabelEncoder().fit_transform(solarData['decision'])
 
 # Scale features
@@ -23,7 +23,7 @@ Xtrain, Xtest, ytrain, ytest = train_test_split(X_scaled, y, test_size=0.2, rand
 
 # logistic regression as 1-layer NN with sigmoid
 model = Sequential([
-    Dense(1, activation='sigmoid', input_shape=(3,))
+    Dense(1, activation='sigmoid', input_shape=(2,))
 ])
 
 model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
