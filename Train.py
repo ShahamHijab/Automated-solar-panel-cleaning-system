@@ -34,5 +34,8 @@ loss, acc = model.evaluate(Xtest, ytest, verbose=0)
 print("TF Logistic Regression Accuracy:", acc)
 
 # Save the model
-model.export('logistic_model')  # saves a folder named 'logistic_model'
+model.export('logistic_model_savedmodel')
+
+ # forces SavedModel format
+
 
