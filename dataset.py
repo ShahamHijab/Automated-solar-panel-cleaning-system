@@ -20,7 +20,8 @@ with open("solar_clean_data.csv", "w", newline="") as file:
         voltage = round(random.uniform(16, 20) - dust_value * 0.1, 2)  # panel voltage
 
         # Decision based on both dust and voltage
-        decision = "needs_cleaning" if dust_value > 3 and voltage < 18 else "clean"
+        # decision = "needs_cleaning" if dust_value > 0.2 and voltage < 5 else "clean"
+        decision = "needs_cleaning" if dust_value > 0.2 else "clean"
 
         writer.writerow([dust_value, voltage, decision])
 

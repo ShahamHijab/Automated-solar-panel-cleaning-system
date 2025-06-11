@@ -13,12 +13,13 @@
 // ======= Pins & Constants =======
 const int dustLEDPin = 2;
 const int dustAnalogPin = 4;
+const int RELAY_PIN = 5;     // Relay control pin
 const int SDA_PIN = 21;
 const int SCL_PIN = 19;
 
-#define DUST_MEAN 2.65    // Mean dust from training data (0 to 5)
-#define DUST_STD  1.58    // Adjust as per CSV
-#define VOLT_MEAN 18.0    // Mean voltage (16 to 20)
+#define DUST_MEAN 2.65
+#define DUST_STD  1.58
+#define VOLT_MEAN 18.0
 #define VOLT_STD  1.15
 
 // ======= TensorFlow Lite Micro Setup =======
@@ -37,6 +38,9 @@ void setup() {
 
   pinMode(dustLEDPin, OUTPUT);
   digitalWrite(dustLEDPin, HIGH);  // LED off
+
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, LOW);  // Make sure solenoid is off at start
 
   // I2C init
   Wire.begin(SDA_PIN, SCL_PIN);
@@ -74,7 +78,6 @@ void setup() {
   Serial.println("System ready!");
 }
 
-// ======= Dust Sensor Reading =======
 float readDustSensor() {
   digitalWrite(dustLEDPin, LOW);
   delayMicroseconds(280);
@@ -83,22 +86,19 @@ float readDustSensor() {
   digitalWrite(dustLEDPin, HIGH);
   delayMicroseconds(9680);
 
-  float voltage = rawADC * (3.3 / 4095.0);  // ADC to voltage
-  float dustDensity = 0.17 * voltage - 0.1;  // Adjusted formula
-
+  float voltage = rawADC * (3.3 / 4095.0);
+  float dustDensity = 0.17 * voltage - 0.1;
   if (dustDensity < 0) dustDensity = 0;
   return dustDensity;
 }
 
-// ======= Main Loop =======
 void loop() {
   float dust = readDustSensor();
 
-  float busVoltage = ina219.getBusVoltage_V();         // Load side
-  float shuntVoltage = ina219.getShuntVoltage_mV() / 1000.0; // In volts
-  float loadVoltage = busVoltage + shuntVoltage;       // Total voltage
+  float busVoltage = ina219.getBusVoltage_V();
+  float shuntVoltage = ina219.getShuntVoltage_mV() / 1000.0;
+  float loadVoltage = busVoltage + shuntVoltage;
 
-  // Normalize based on training data
   float normDust = (dust - DUST_MEAN) / DUST_STD;
   float normVolt = (loadVoltage - VOLT_MEAN) / VOLT_STD;
 
@@ -124,7 +124,16 @@ void loop() {
   Serial.println(prob, 2);
   Serial.print("Prediction: ");
   Serial.println(result);
-  Serial.println("-----------------------");
 
-  delay(1000);
+  // === Solenoid Control ===
+  if (prob < 0.5) {
+    Serial.println("Triggering solenoid for cleaning...");
+    digitalWrite(RELAY_PIN, HIGH);  // Activate solenoid
+    delay(5000);                   // Keep it open for 5 seconds
+    digitalWrite(RELAY_PIN, LOW);   // Close it
+    Serial.println("Cleaning complete.");
+  }
+
+  Serial.println("-----------------------");
+  delay(5000);  // Wait 5 seconds before next reading
 }
