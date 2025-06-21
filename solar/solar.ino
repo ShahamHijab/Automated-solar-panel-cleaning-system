@@ -1,6 +1,7 @@
 #include <Wire.h>
 #include <Adafruit_INA219.h>
-
+#include <WiFi.h>
+#include <WebServer.h>
 // TensorFlow Lite Micro includes
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
@@ -9,7 +10,18 @@
 
 // Your converted model
 #include "logistic_model.h"  // Should define 'model_tflite'
+// wifi crediantilas
+const char* ssid = "YOUR_SSID";
+const char* password = "YOUR_PASSWORD";
 
+WebServer server(80);
+
+String htmlPage = "<h1>Initializing...</h1>";
+
+// ======= WiFi and Server Setup =======
+void handleRoot() {
+  server.send(200, "text/html", htmlPage);
+}
 // ======= Pins & Constants =======
 const int dustLEDPin = 2;
 const int dustAnalogPin = 4;
@@ -70,11 +82,17 @@ void setup() {
   if (interpreter->AllocateTensors() != kTfLiteOk) {
     Serial.println("Tensor allocation failed!");
     while (1);
+  
   }
 
   input = interpreter->input(0);
   output = interpreter->output(0);
+   // Web server setup
+  server.on("/", handleRoot);
+  server.begin();
+  Serial.println("HTTP server started");
 
+  // Serial.println("System ready!");
   Serial.println("System ready!");
 }
 
@@ -133,7 +151,37 @@ void loop() {
     digitalWrite(RELAY_PIN, LOW);   // Close it
     Serial.println("Cleaning complete.");
   }
+   // Web Page Content
+ htmlPage = "<!DOCTYPE html><html><head><meta charset='UTF-8'>";
+  htmlPage += "<meta http-equiv='refresh' content='5'>";
+  htmlPage += "<title>ESP32 Sensor Monitor</title>";
+  htmlPage += "<style>";
+  htmlPage += "body { font-family: Arial, sans-serif; background: #f2f2f2; padding: 20px; }";
+  htmlPage += "h2 { color: #333; }";
+  htmlPage += "table { border-collapse: collapse; width: 100%; max-width: 600px; margin-top: 20px; }";
+  htmlPage += "th, td { text-align: left; padding: 12px; }";
+  htmlPage += "th { background-color: #4CAF50; color: white; }";
+  htmlPage += "tr:nth-child(even) { background-color: #f9f9f9; }";
+  htmlPage += ".status-clean { color: green; font-weight: bold; }";
+  htmlPage += ".status-dirty { color: red; font-weight: bold; }";
+  htmlPage += "</style></head><body>";
 
+  htmlPage += "<h2>ESP32 Sensor Dashboard</h2>";
+  htmlPage += "<table border='1'>";
+  htmlPage += "<tr><th>Parameter</th><th>Value</th></tr>";
+  htmlPage += "<tr><td>Dust Level</td><td>" + String(dust) + " µg/m³</td></tr>";
+  htmlPage += "<tr><td>Voltage</td><td>" + String(loadVoltage) + " V</td></tr>";
+  htmlPage += "<tr><td>Probability</td><td>" + String(prob, 2) + "</td></tr>";
+
+  // Styled prediction cell
+  String statusClass = (prob < 0.5) ? "status-dirty" : "status-clean";
+  htmlPage += "<tr><td>Prediction</td><td class='" + statusClass + "'>" + String(result) + "</td></tr>";
+
+  htmlPage += "</table>";
+  htmlPage += "<p>Page refreshes every 5 seconds.</p>";
+  htmlPage += "</body></html>";
+
+  server.handleClient();
   Serial.println("-----------------------");
   delay(5000);  // Wait 5 seconds before next reading
 }
