@@ -8,7 +8,7 @@ import numpy as np
 
 # dataset
 solarData = pd.read_csv('solar_clean_data.csv')
-
+print(solarData['decision'].value_counts())
 
 # Features and target
 X = solarData[['dust_value', 'voltage']].values
@@ -39,3 +39,10 @@ model.export('logistic_model_savedmodel')
  # forces SavedModel format
 
 
+# print(solarData['decision'].value_counts())
+
+clean_sample = scaler.transform([[0.0, 19.5]])  # Clean case
+print("Prediction (0=clean, 1=needs_cleaning):", model.predict(clean_sample))
+
+dirty_sample = scaler.transform([[2.0, 16.5]])  # Dirty case
+print("Prediction (0=clean, 1=needs_cleaning):", model.predict(dirty_sample))

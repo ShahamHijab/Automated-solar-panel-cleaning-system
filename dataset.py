@@ -1,28 +1,31 @@
 import csv
 import random
-from datetime import datetime, timedelta
 
-num_records = 300  # number of records
-V_CLEAN = 0.9  # clean voltage threshold
-K = 0.5
-start_time = datetime.now()
+num_records = 300
+num_clean = num_records // 2
+num_dirty = num_records - num_clean
 
+rows = []
+
+# Generate CLEAN samples (dust low, voltage high)
+for _ in range(num_clean):
+    dust_value = round(random.uniform(0.0, 0.15), 2)
+    voltage = round(random.uniform(18, 20) - dust_value * 0.1, 2)
+    rows.append([dust_value, voltage, "clean"])
+
+# Generate NEEDS_CLEANING samples (dust high, voltage low)
+for _ in range(num_dirty):
+    dust_value = round(random.uniform(0.16, 2.5), 2)
+    voltage = round(random.uniform(16, 18) - dust_value * 0.2, 2)
+    rows.append([dust_value, voltage, "needs_cleaning"])
+
+# Shuffle dataset for randomness
+random.shuffle(rows)
+
+# Write to CSV
 with open("solar_clean_data.csv", "w", newline="") as file:
     writer = csv.writer(file)
-    writer.writerow(["dust_value", "voltage", "decision"])  # Output only needed columns
+    writer.writerow(["dust_value", "voltage", "decision"])
+    writer.writerows(rows)
 
-    for i in range(num_records):
-        now = start_time + timedelta(minutes=10 * i)
-
-        vo = round(random.uniform(0.8, 3.6), 2)
-        dust_value = max((vo - V_CLEAN) / K, 0)
-
-        voltage = round(random.uniform(16, 20) - dust_value * 0.1, 2)  # panel voltage
-
-        # Decision based on both dust and voltage
-        # decision = "needs_cleaning" if dust_value > 0.2 and voltage < 5 else "clean"
-        decision = "needs_cleaning" if dust_value > 0.15 else "clean"
-
-        writer.writerow([dust_value, voltage, decision])
-
-print("Dataset saved as 'solar_clean_data.csv'")
+print("✅ Balanced dataset saved as 'solar_clean_data.csv'")
