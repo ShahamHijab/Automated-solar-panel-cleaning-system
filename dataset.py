@@ -21,7 +21,7 @@ with open("solar_clean_data.csv", "w", newline="") as file:
 
         # Decision based on both dust and voltage
         # decision = "needs_cleaning" if dust_value > 0.2 and voltage < 5 else "clean"
-        decision = "needs_cleaning" if dust_value > 0.2 else "clean"
+        decision = "needs_cleaning" if dust_value > 0.15 else "clean"
 
         writer.writerow([dust_value, voltage, decision])
 
