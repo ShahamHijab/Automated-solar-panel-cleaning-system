@@ -1,10 +1,13 @@
+
 #include <Wire.h>
 #include <Adafruit_INA219.h>
-#include <Firebase_ESP_Client.h>
+#include <HTTPClient.h>  // for InfluxDB POST
+#include <WebServer.h>
+#include <esp_heap_caps.h>
+#include <WiFi.h>
+#include <ESPmDNS.h>
 
 
-#include "addons/TokenHelper.h"
-#include "addons/RTDBHelper.h"     // Helper for Realtime DB
 // TensorFlow Lite Micro includes
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
@@ -12,16 +15,19 @@
 #include "tensorflow/lite/version.h"
 
 
-#define WIFI_SSID "NTU FSD"
-#define WIFI_PASSWORD " "
+#define WIFI_SSID "Sbain"
+#define WIFI_PASSWORD "cant7301"
 
-#define API_KEY "AIzaSyAEPu_TIUmDkTqQ0oKdGsx9Va6Kw73s7Ns"
-#define DATABASE_URL "https://solarpanelcleaning-4c864-default-rtdb.firebaseio.com/"
-// Firebase globals
-FirebaseData fbdo;
-FirebaseAuth auth;
-FirebaseConfig config;
-// Your converted model
+WebServer server(80);
+
+// Variables to store the latest sensor values
+float lastDust = 0.0;
+float lastVoltage = 0.0;
+float lastProbability = 0.0;
+String lastPrediction = "Unknown";
+
+
+//  converted model
 #include "logistic_model.h"  // Should define 'model_tflite'
 
 // ======= Pins & Constants =======
@@ -36,9 +42,28 @@ const int SCL_PIN = 19;
 #define VOLT_MEAN 17.7
 #define VOLT_STD 1.2
 
+
+void handleRoot() {
+  Serial.println("Web request received");
+
+  String html = "<html><head><title>Solar Cleaning Status</title>";
+  html += "<meta http-equiv='refresh' content='5'>";
+  html += "</head><body>";
+  html += "<h2>Solar Panel Data</h2>";
+  html += "<table border='1' cellpadding='8'><tr><th>Dust (µg/m³)</th><th>Voltage (V)</th><th>Probability</th><th>Prediction</th></tr>";
+  html += "<tr><td>" + String(lastDust) + "</td><td>" + String(lastVoltage) + "</td><td>" + String(lastProbability, 2) + "</td><td>" + lastPrediction + "</td></tr>";
+  html += "</table></body></html>";
+
+  server.send(200, "text/html", html);
+}
+
+
+
 // ======= TensorFlow Lite Micro Setup =======
-constexpr int kTensorArenaSize = 2 * 1024;
-uint8_t tensor_arena[kTensorArenaSize];
+constexpr int kTensorArenaSize = 10 * 1024;  // Increase if needed
+uint8_t* tensor_arena = (uint8_t*) heap_caps_malloc(kTensorArenaSize, MALLOC_CAP_SPIRAM);
+
+
 
 tflite::MicroInterpreter* interpreter;
 TfLiteTensor* input;
@@ -46,24 +71,26 @@ TfLiteTensor* output;
 
 Adafruit_INA219 ina219;
 void connectWiFi() {
-WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-Serial.print("Connecting to WiFi");
-while (WiFi.status() != WL_CONNECTED) {
-delay(500);
-Serial.print(".");
-}
-Serial.println("\nWiFi connected!");
-}
-void initFirebase() {
-  config.api_key = API_KEY;
-  config.database_url = DATABASE_URL;
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("Connecting to WiFi");
+  
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
 
-  auth.user.email = ""; // Anonymous auth
-  auth.user.password = "";
-
-  Firebase.begin(&config, &auth);
-  Firebase.reconnectWiFi(true);
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nWiFi connected!");
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("\n❌ Failed to connect to WiFi!");
+  }
 }
+
+
 void setup() {
   Serial.begin(115200);
   delay(1000);
@@ -74,7 +101,12 @@ void setup() {
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, LOW);   // Solenoid off initially
   connectWiFi();
-  initFirebase();
+if (MDNS.begin("solarclean")) {
+  Serial.println("MDNS responder started");
+}
+
+
+
   // Initialize I2C and INA219
   Wire.begin(SDA_PIN, SCL_PIN);
   delay(500);
@@ -82,6 +114,11 @@ void setup() {
     Serial.println("INA219 not found!");
     while (1);
   }
+  if (!tensor_arena) {
+  Serial.println("❌ Failed to allocate tensor arena in PSRAM!");
+  while (1);
+}
+
 
   // Load ML model
   const tflite::Model* model = tflite::GetModel(model_tflite);
@@ -169,10 +206,51 @@ void loop() {
     Serial.println("Cleaning complete.");
   }
   // Send to Firebase
-  Firebase.RTDB.setFloat(&fbdo, "/dustDensity", dust);
-  Firebase.RTDB.setFloat(&fbdo, "/voltage", loadVoltage);
-  Firebase.RTDB.setFloat(&fbdo, "/probability", prob);
-  Firebase.RTDB.setString(&fbdo, "/prediction", result);
+if (WiFi.status() == WL_CONNECTED) {
+  HTTPClient http;
+
+  // Firebase URL (change YOUR_PROJECT_ID)
+  String firebaseUrl = String("https://solarsystem-2babe-default-rtdb.firebaseio.com//solarData.json?auth=ACOZE3BvabpPdNGuu83DAyVm2NkRlEzUg3bPgZWr");
+
+  // Format payload as JSON
+  String payload = "{";
+  payload += "\"dustDensity\":" + String(dust) + ",";
+  payload += "\"voltage\":" + String(loadVoltage) + ",";
+  payload += "\"probability\":" + String(prob) + ",";
+  payload += "\"prediction\":\"" + String(result) + "\"";
+  payload += "}";
+
+  // Start connection
+  http.begin(firebaseUrl);
+  http.addHeader("Content-Type", "application/json");
+
+  // Send POST
+  int responseCode = http.POST(payload);
+  Serial.print("Firebase Response: ");
+  Serial.println(responseCode);
+
+  if (responseCode > 0) {
+    Serial.println("Data sent successfully!");
+  } else {
+    Serial.print("Error sending to Firebase: ");
+    Serial.println(http.errorToString(responseCode));
+  }
+
+  http.end();
+} else {
+  Serial.println("WiFi not connected.");
+}
+
+
+lastDust = dust;
+lastVoltage = loadVoltage;
+lastProbability = prob;
+lastPrediction = result;
+
+server.handleClient();
+
+
+
   Serial.println("-----------------------");
   delay(5000);
 }
