@@ -1,11 +1,11 @@
 
 #include <Wire.h>
 #include <Adafruit_INA219.h>
-#include <HTTPClient.h>  // for InfluxDB POST
+#include <HTTPClient.h>  
 #include <WebServer.h>
 #include <esp_heap_caps.h>
 #include <WiFi.h>
-#include <ESPmDNS.h>
+
 
 
 // TensorFlow Lite Micro includes
@@ -18,7 +18,7 @@
 #define WIFI_SSID "Sbain"
 #define WIFI_PASSWORD "cant7301"
 
-WebServer server(80);
+
 
 // Variables to store the latest sensor values
 float lastDust = 0.0;
@@ -43,19 +43,7 @@ const int SCL_PIN = 19;
 #define VOLT_STD 1.2
 
 
-void handleRoot() {
-  Serial.println("Web request received");
 
-  String html = "<html><head><title>Solar Cleaning Status</title>";
-  html += "<meta http-equiv='refresh' content='5'>";
-  html += "</head><body>";
-  html += "<h2>Solar Panel Data</h2>";
-  html += "<table border='1' cellpadding='8'><tr><th>Dust (µg/m³)</th><th>Voltage (V)</th><th>Probability</th><th>Prediction</th></tr>";
-  html += "<tr><td>" + String(lastDust) + "</td><td>" + String(lastVoltage) + "</td><td>" + String(lastProbability, 2) + "</td><td>" + lastPrediction + "</td></tr>";
-  html += "</table></body></html>";
-
-  server.send(200, "text/html", html);
-}
 
 
 
@@ -101,9 +89,7 @@ void setup() {
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, LOW);   // Solenoid off initially
   connectWiFi();
-if (MDNS.begin("solarclean")) {
-  Serial.println("MDNS responder started");
-}
+
 
 
 
@@ -240,14 +226,39 @@ if (WiFi.status() == WL_CONNECTED) {
 } else {
   Serial.println("WiFi not connected.");
 }
+// ===== Send to ThingSpeak =====
+if (WiFi.status() == WL_CONNECTED) {
+  HTTPClient http;
+
+  String thingSpeakAPIKey = "UFJX6PHYTC441XUE";  // Your Write API key
+
+  // Convert prediction to numeric: 1 = Clean, 0 = Needs_cleaning
+  int predictionCode = (String(result) == "Clean") ? 1 : 0;
+
+  String url = "http://api.thingspeak.com/update?api_key=" + thingSpeakAPIKey;
+  url += "&field1=" + String(dust, 2);
+  url += "&field2=" + String(loadVoltage, 2);
+  url += "&field3=" + String(prob, 4);
+  url += "&field4=" + String(predictionCode);  // ✅ Send numeric value now
+
+  http.begin(url);
+  int httpCode = http.GET();
+
+  Serial.print("ThingSpeak Response: ");
+  Serial.println(httpCode);
+
+  if (httpCode > 0) {
+    Serial.println("ThingSpeak update success!");
+  } else {
+    Serial.println("ThingSpeak update failed.");
+  }
+
+  http.end();
+}
 
 
-lastDust = dust;
-lastVoltage = loadVoltage;
-lastProbability = prob;
-lastPrediction = result;
 
-server.handleClient();
+
 
 
 
