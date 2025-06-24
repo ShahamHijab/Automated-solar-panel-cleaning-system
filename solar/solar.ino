@@ -1,38 +1,40 @@
 #include <Wire.h>
 #include <Adafruit_INA219.h>
-#include <WiFi.h>
-#include <WebServer.h>
+#include <Firebase_ESP_Client.h>
+
+
+#include "addons/TokenHelper.h"
+#include "addons/RTDBHelper.h"     // Helper for Realtime DB
 // TensorFlow Lite Micro includes
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "tensorflow/lite/version.h"
 
+
+#define WIFI_SSID "NTU FSD"
+#define WIFI_PASSWORD " "
+
+#define API_KEY "AIzaSyAEPu_TIUmDkTqQ0oKdGsx9Va6Kw73s7Ns"
+#define DATABASE_URL "https://solarpanelcleaning-4c864-default-rtdb.firebaseio.com/"
+// Firebase globals
+FirebaseData fbdo;
+FirebaseAuth auth;
+FirebaseConfig config;
 // Your converted model
 #include "logistic_model.h"  // Should define 'model_tflite'
-// wifi crediantilas
-const char* ssid = "YOUR_SSID";
-const char* password = "YOUR_PASSWORD";
 
-WebServer server(80);
-
-String htmlPage = "<h1>Initializing...</h1>";
-
-// ======= WiFi and Server Setup =======
-void handleRoot() {
-  server.send(200, "text/html", htmlPage);
-}
 // ======= Pins & Constants =======
 const int dustLEDPin = 2;
 const int dustAnalogPin = 4;
-const int RELAY_PIN = 5;     // Relay control pin
+const int RELAY_PIN = 13;     // Relay control pin
 const int SDA_PIN = 21;
 const int SCL_PIN = 19;
 
-#define DUST_MEAN 2.65
-#define DUST_STD  1.58
-#define VOLT_MEAN 18.0
-#define VOLT_STD  1.15
+#define DUST_MEAN 2.6
+#define DUST_STD 1.6
+#define VOLT_MEAN 17.7
+#define VOLT_STD 1.2
 
 // ======= TensorFlow Lite Micro Setup =======
 constexpr int kTensorArenaSize = 2 * 1024;
@@ -43,25 +45,45 @@ TfLiteTensor* input;
 TfLiteTensor* output;
 
 Adafruit_INA219 ina219;
+void connectWiFi() {
+WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+Serial.print("Connecting to WiFi");
+while (WiFi.status() != WL_CONNECTED) {
+delay(500);
+Serial.print(".");
+}
+Serial.println("\nWiFi connected!");
+}
+void initFirebase() {
+  config.api_key = API_KEY;
+  config.database_url = DATABASE_URL;
 
+  auth.user.email = ""; // Anonymous auth
+  auth.user.password = "";
+
+  Firebase.begin(&config, &auth);
+  Firebase.reconnectWiFi(true);
+}
 void setup() {
   Serial.begin(115200);
   delay(1000);
 
   pinMode(dustLEDPin, OUTPUT);
-  digitalWrite(dustLEDPin, HIGH);  // LED off
+  digitalWrite(dustLEDPin, HIGH);  // LED off initially
 
   pinMode(RELAY_PIN, OUTPUT);
-  digitalWrite(RELAY_PIN, LOW);  // Make sure solenoid is off at start
-
-  // I2C init
+  digitalWrite(RELAY_PIN, LOW);   // Solenoid off initially
+  connectWiFi();
+  initFirebase();
+  // Initialize I2C and INA219
   Wire.begin(SDA_PIN, SCL_PIN);
+  delay(500);
   if (!ina219.begin(&Wire)) {
     Serial.println("INA219 not found!");
     while (1);
   }
 
-  // Load model
+  // Load ML model
   const tflite::Model* model = tflite::GetModel(model_tflite);
   if (model->version() != TFLITE_SCHEMA_VERSION) {
     Serial.println("Model version mismatch!");
@@ -82,17 +104,11 @@ void setup() {
   if (interpreter->AllocateTensors() != kTfLiteOk) {
     Serial.println("Tensor allocation failed!");
     while (1);
-  
   }
 
   input = interpreter->input(0);
   output = interpreter->output(0);
-   // Web server setup
-  server.on("/", handleRoot);
-  server.begin();
-  Serial.println("HTTP server started");
 
-  // Serial.println("System ready!");
   Serial.println("System ready!");
 }
 
@@ -113,10 +129,12 @@ float readDustSensor() {
 void loop() {
   float dust = readDustSensor();
 
+  // INA219 readings
   float busVoltage = ina219.getBusVoltage_V();
   float shuntVoltage = ina219.getShuntVoltage_mV() / 1000.0;
   float loadVoltage = busVoltage + shuntVoltage;
 
+  // Normalize inputs
   float normDust = (dust - DUST_MEAN) / DUST_STD;
   float normVolt = (loadVoltage - VOLT_MEAN) / VOLT_STD;
 
@@ -143,45 +161,18 @@ void loop() {
   Serial.print("Prediction: ");
   Serial.println(result);
 
-  // === Solenoid Control ===
   if (prob < 0.5) {
     Serial.println("Triggering solenoid for cleaning...");
-    digitalWrite(RELAY_PIN, HIGH);  // Activate solenoid
-    delay(5000);                   // Keep it open for 5 seconds
-    digitalWrite(RELAY_PIN, LOW);   // Close it
+    digitalWrite(RELAY_PIN, HIGH);
+    delay(10000);
+    digitalWrite(RELAY_PIN, LOW);
     Serial.println("Cleaning complete.");
   }
-   // Web Page Content
- htmlPage = "<!DOCTYPE html><html><head><meta charset='UTF-8'>";
-  htmlPage += "<meta http-equiv='refresh' content='5'>";
-  htmlPage += "<title>ESP32 Sensor Monitor</title>";
-  htmlPage += "<style>";
-  htmlPage += "body { font-family: Arial, sans-serif; background: #f2f2f2; padding: 20px; }";
-  htmlPage += "h2 { color: #333; }";
-  htmlPage += "table { border-collapse: collapse; width: 100%; max-width: 600px; margin-top: 20px; }";
-  htmlPage += "th, td { text-align: left; padding: 12px; }";
-  htmlPage += "th { background-color: #4CAF50; color: white; }";
-  htmlPage += "tr:nth-child(even) { background-color: #f9f9f9; }";
-  htmlPage += ".status-clean { color: green; font-weight: bold; }";
-  htmlPage += ".status-dirty { color: red; font-weight: bold; }";
-  htmlPage += "</style></head><body>";
-
-  htmlPage += "<h2>ESP32 Sensor Dashboard</h2>";
-  htmlPage += "<table border='1'>";
-  htmlPage += "<tr><th>Parameter</th><th>Value</th></tr>";
-  htmlPage += "<tr><td>Dust Level</td><td>" + String(dust) + " µg/m³</td></tr>";
-  htmlPage += "<tr><td>Voltage</td><td>" + String(loadVoltage) + " V</td></tr>";
-  htmlPage += "<tr><td>Probability</td><td>" + String(prob, 2) + "</td></tr>";
-
-  // Styled prediction cell
-  String statusClass = (prob < 0.5) ? "status-dirty" : "status-clean";
-  htmlPage += "<tr><td>Prediction</td><td class='" + statusClass + "'>" + String(result) + "</td></tr>";
-
-  htmlPage += "</table>";
-  htmlPage += "<p>Page refreshes every 5 seconds.</p>";
-  htmlPage += "</body></html>";
-
-  server.handleClient();
+  // Send to Firebase
+  Firebase.RTDB.setFloat(&fbdo, "/dustDensity", dust);
+  Firebase.RTDB.setFloat(&fbdo, "/voltage", loadVoltage);
+  Firebase.RTDB.setFloat(&fbdo, "/probability", prob);
+  Firebase.RTDB.setString(&fbdo, "/prediction", result);
   Serial.println("-----------------------");
-  delay(5000);  // Wait 5 seconds before next reading
+  delay(5000);
 }
