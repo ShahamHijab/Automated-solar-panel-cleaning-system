@@ -79,6 +79,10 @@ void setup() {
     Serial.println("Failed to allocate tensor arena in PSRAM!");
     while (1);
   }
+  if (!tensor_arena) {
+  Serial.println(" Failed to allocate tensor arena in PSRAM!");
+  while (1);
+}
 
   const tflite::Model* model = tflite::GetModel(model_tflite);
   if (model->version() != TFLITE_SCHEMA_VERSION) {
