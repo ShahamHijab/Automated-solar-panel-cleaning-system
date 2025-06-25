@@ -14,7 +14,7 @@
 #include "tensorflow/lite/version.h"
 
 
-#define WIFI_SSID "Sbain"
+#define WIFI_SSID "Sbain7"
 #define WIFI_PASSWORD "cant7301"
 
 #define RELAY_ON  LOW     // Active-low relay
@@ -33,7 +33,7 @@ String lastPrediction = "Unknown";
 // ======= Pins & Constants =======
 const int dustLEDPin = 2;
 const int dustAnalogPin = 4;
-const int RELAY_PIN = 8;     // Relay control pin
+const int RELAY_PIN = 5;     // Relay control pin
 const int SDA_PIN = 21;
 const int SCL_PIN = 19;
 
@@ -59,24 +59,28 @@ TfLiteTensor* output;
 
 Adafruit_INA219 ina219;
 void connectWiFi() {
+  WiFi.disconnect(true);  // Clear previous settings
+  delay(100);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.print("Connecting to WiFi");
-  
+  Serial.println("Connecting to WiFi...");
+
   int attempts = 0;
   while (WiFi.status() != WL_CONNECTED && attempts < 20) {
     delay(500);
-    Serial.print(".");
+    // Serial.print("Status: ");
+    // Serial.println(WiFi.status());  // Print status code
     attempts++;
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\nWiFi connected!");
+    Serial.println("✅ WiFi connected!");
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
   } else {
-    Serial.println("\n❌ Failed to connect to WiFi!");
+    Serial.println("❌ Failed to connect to WiFi!");
   }
 }
+
 
 
 void setup() {
@@ -86,7 +90,7 @@ void setup() {
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, RELAY_OFF);  // Motor OFF at startup
 
-
+  connectWiFi();
 
 
   // Initialize I2C and INA219
@@ -236,7 +240,7 @@ if (WiFi.status() == WL_CONNECTED) {
   url += "&field1=" + String(dust, 2);
   url += "&field2=" + String(loadVoltage, 2);
   url += "&field3=" + String(prob, 4);
-  url += "&field4=" + String(predictionCode);  // ✅ Send numeric value now
+  url += "&field4=" + String(predictionCode);  //  Send numeric value now
 
   http.begin(url);
   int httpCode = http.GET();
@@ -253,12 +257,6 @@ if (WiFi.status() == WL_CONNECTED) {
   http.end();
 }
 
-
-
-
-
-
-
   Serial.println("-----------------------");
-  delay(5000);
+  delay(7000);
 }
