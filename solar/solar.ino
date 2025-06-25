@@ -2,7 +2,6 @@
 #include <Wire.h>
 #include <Adafruit_INA219.h>
 #include <HTTPClient.h>  
-#include <WebServer.h>
 #include <esp_heap_caps.h>
 #include <WiFi.h>
 
@@ -18,7 +17,8 @@
 #define WIFI_SSID "Sbain"
 #define WIFI_PASSWORD "cant7301"
 
-
+#define RELAY_ON  LOW     // Active-low relay
+#define RELAY_OFF HIGH
 
 // Variables to store the latest sensor values
 float lastDust = 0.0;
@@ -33,7 +33,7 @@ String lastPrediction = "Unknown";
 // ======= Pins & Constants =======
 const int dustLEDPin = 2;
 const int dustAnalogPin = 4;
-const int RELAY_PIN = 13;     // Relay control pin
+const int RELAY_PIN = 8;     // Relay control pin
 const int SDA_PIN = 21;
 const int SCL_PIN = 19;
 
@@ -83,12 +83,8 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
 
-  pinMode(dustLEDPin, OUTPUT);
-  digitalWrite(dustLEDPin, HIGH);  // LED off initially
-
   pinMode(RELAY_PIN, OUTPUT);
-  digitalWrite(RELAY_PIN, LOW);   // Solenoid off initially
-  connectWiFi();
+  digitalWrite(RELAY_PIN, RELAY_OFF);  // Motor OFF at startup
 
 
 
@@ -185,12 +181,13 @@ void loop() {
   Serial.println(result);
 
   if (prob < 0.5) {
-    Serial.println("Triggering solenoid for cleaning...");
-    digitalWrite(RELAY_PIN, HIGH);
-    delay(10000);
-    digitalWrite(RELAY_PIN, LOW);
-    Serial.println("Cleaning complete.");
-  }
+  Serial.println("Triggering solenoid for cleaning...");
+  digitalWrite(RELAY_PIN, RELAY_ON);
+  delay(10000);
+  digitalWrite(RELAY_PIN, RELAY_OFF);
+  Serial.println("Cleaning complete.");
+}
+
   // Send to Firebase
 if (WiFi.status() == WL_CONNECTED) {
   HTTPClient http;
