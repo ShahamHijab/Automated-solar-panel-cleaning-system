@@ -101,7 +101,7 @@ void setup() {
     while (1);
   }
   if (!tensor_arena) {
-  Serial.println("❌ Failed to allocate tensor arena in PSRAM!");
+  Serial.println(" Failed to allocate tensor arena in PSRAM!");
   while (1);
 }
 
