@@ -1,11 +1,8 @@
-
 #include <Wire.h>
-#include <Adafruit_INA219.h>
+// #include <Adafruit_INA219.h>  // Commented out
 #include <HTTPClient.h>  
 #include <esp_heap_caps.h>
 #include <WiFi.h>
-
-
 
 // TensorFlow Lite Micro includes
 #include "tensorflow/lite/micro/micro_interpreter.h"
@@ -13,27 +10,18 @@
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "tensorflow/lite/version.h"
 
+#define WIFI_SSID "Wifi-79J"
+#define WIFI_PASSWORD "797979jjjj"
 
-#define WIFI_SSID "Sbain7"
-#define WIFI_PASSWORD "cant7301"
+// Active-Low Relay Definitions
+#define RELAY_ON  LOW     // LOW = motor ON
+#define RELAY_OFF HIGH    // HIGH = motor OFF
 
-#define RELAY_ON  LOW     // Active-low relay
-#define RELAY_OFF HIGH
-
-// Variables to store the latest sensor values
-float lastDust = 0.0;
-float lastVoltage = 0.0;
-float lastProbability = 0.0;
-String lastPrediction = "Unknown";
-
-
-//  converted model
-#include "logistic_model.h"  // Should define 'model_tflite'
-
-// ======= Pins & Constants =======
+// === Pins & Constants ===
 const int dustLEDPin = 2;
 const int dustAnalogPin = 4;
-const int RELAY_PIN = 5;     // Relay control pin
+const int RELAY_PIN = 5;
+const int DEBUG_LED = 13;     // Optional: for testing relay status
 const int SDA_PIN = 21;
 const int SCL_PIN = 19;
 
@@ -42,24 +30,20 @@ const int SCL_PIN = 19;
 #define VOLT_MEAN 17.7
 #define VOLT_STD 1.2
 
+// TensorFlow Model
+#include "logistic_model.h"
 
-
-
-
-
-// ======= TensorFlow Lite Micro Setup =======
-constexpr int kTensorArenaSize = 10 * 1024;  // Increase if needed
+// TensorFlow Lite Micro setup
+constexpr int kTensorArenaSize = 10 * 1024;
 uint8_t* tensor_arena = (uint8_t*) heap_caps_malloc(kTensorArenaSize, MALLOC_CAP_SPIRAM);
-
-
 
 tflite::MicroInterpreter* interpreter;
 TfLiteTensor* input;
 TfLiteTensor* output;
 
-Adafruit_INA219 ina219;
+// Connect to WiFi
 void connectWiFi() {
-  WiFi.disconnect(true);  // Clear previous settings
+  WiFi.disconnect(true);
   delay(100);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.println("Connecting to WiFi...");
@@ -67,46 +51,35 @@ void connectWiFi() {
   int attempts = 0;
   while (WiFi.status() != WL_CONNECTED && attempts < 20) {
     delay(500);
-    // Serial.print("Status: ");
-    // Serial.println(WiFi.status());  // Print status code
     attempts++;
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("✅ WiFi connected!");
+    Serial.println("WiFi connected!");
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
   } else {
-    Serial.println("❌ Failed to connect to WiFi!");
+    Serial.println("Failed to connect to WiFi!");
   }
 }
-
-
 
 void setup() {
   Serial.begin(115200);
   delay(1000);
 
   pinMode(RELAY_PIN, OUTPUT);
-  digitalWrite(RELAY_PIN, RELAY_OFF);  // Motor OFF at startup
+  digitalWrite(RELAY_PIN, RELAY_OFF);
+
+  pinMode(DEBUG_LED, OUTPUT); // Optional debug LED
+  digitalWrite(DEBUG_LED, LOW);
 
   connectWiFi();
 
-
-  // Initialize I2C and INA219
-  Wire.begin(SDA_PIN, SCL_PIN);
-  delay(500);
-  if (!ina219.begin(&Wire)) {
-    Serial.println("INA219 not found!");
+  if (!tensor_arena) {
+    Serial.println("Failed to allocate tensor arena in PSRAM!");
     while (1);
   }
-  if (!tensor_arena) {
-  Serial.println("❌ Failed to allocate tensor arena in PSRAM!");
-  while (1);
-}
 
-
-  // Load ML model
   const tflite::Model* model = tflite::GetModel(model_tflite);
   if (model->version() != TFLITE_SCHEMA_VERSION) {
     Serial.println("Model version mismatch!");
@@ -121,7 +94,7 @@ void setup() {
   resolver.AddDequantize();
 
   static tflite::MicroInterpreter static_interpreter(
-      model, resolver, tensor_arena, kTensorArenaSize);
+    model, resolver, tensor_arena, kTensorArenaSize);
   interpreter = &static_interpreter;
 
   if (interpreter->AllocateTensors() != kTfLiteOk) {
@@ -135,6 +108,7 @@ void setup() {
   Serial.println("System ready!");
 }
 
+// Dust sensor reading
 float readDustSensor() {
   digitalWrite(dustLEDPin, LOW);
   delayMicroseconds(280);
@@ -152,12 +126,9 @@ float readDustSensor() {
 void loop() {
   float dust = readDustSensor();
 
-  // INA219 readings
-  float busVoltage = ina219.getBusVoltage_V();
-  float shuntVoltage = ina219.getShuntVoltage_mV() / 1000.0;
-  float loadVoltage = busVoltage + shuntVoltage;
+  // Simulated voltage
+  float loadVoltage = 17.7;
 
-  // Normalize inputs
   float normDust = (dust - DUST_MEAN) / DUST_STD;
   float normVolt = (loadVoltage - VOLT_MEAN) / VOLT_STD;
 
@@ -173,89 +144,62 @@ void loop() {
   const char* result = (prob < 0.5) ? "Needs_cleaning" : "Clean";
 
   Serial.println("-----------------------");
-  Serial.print("Dust: ");
-  Serial.print(dust);
-  Serial.print(" µg/m³, Voltage: ");
-  Serial.print(loadVoltage);
-  Serial.println(" V");
+  Serial.printf("Dust: %.2f µg/m³, Voltage: %.2f V\n", dust, loadVoltage);
+  Serial.printf("Predicted probability: %.2f\n", prob);
+  Serial.printf("Prediction: %s\n", result);
 
-  Serial.print("Predicted probability: ");
-  Serial.println(prob, 2);
-  Serial.print("Prediction: ");
-  Serial.println(result);
-
-  if (prob < 0.5) {
-  Serial.println("Triggering solenoid for cleaning...");
-  digitalWrite(RELAY_PIN, RELAY_ON);
-  delay(10000);
-  digitalWrite(RELAY_PIN, RELAY_OFF);
-  Serial.println("Cleaning complete.");
-}
-
-  // Send to Firebase
-if (WiFi.status() == WL_CONNECTED) {
-  HTTPClient http;
-
-  // Firebase URL (change YOUR_PROJECT_ID)
-  String firebaseUrl = String("https://solarsystem-2babe-default-rtdb.firebaseio.com//solarData.json?auth=ACOZE3BvabpPdNGuu83DAyVm2NkRlEzUg3bPgZWr");
-
-  // Format payload as JSON
-  String payload = "{";
-  payload += "\"dustDensity\":" + String(dust) + ",";
-  payload += "\"voltage\":" + String(loadVoltage) + ",";
-  payload += "\"probability\":" + String(prob) + ",";
-  payload += "\"prediction\":\"" + String(result) + "\"";
-  payload += "}";
-
-  // Start connection
-  http.begin(firebaseUrl);
-  http.addHeader("Content-Type", "application/json");
-
-  // Send POST
-  int responseCode = http.POST(payload);
-  Serial.print("Firebase Response: ");
-  Serial.println(responseCode);
-
-  if (responseCode > 0) {
-    Serial.println("Data sent successfully!");
-  } else {
-    Serial.print("Error sending to Firebase: ");
-    Serial.println(http.errorToString(responseCode));
+  // ========== motor CONTROL ==========
+  if (prob < 0.5) { // or use: if (true) to force test
+    Serial.println("Triggering motor for cleaning...");
+    digitalWrite(RELAY_PIN, RELAY_ON);     // Turn motor ON
+    digitalWrite(DEBUG_LED, HIGH);         // Optional LED ON
+    delay(10000);
+    digitalWrite(RELAY_PIN, RELAY_OFF);    // Turn motor OFF
+    digitalWrite(DEBUG_LED, LOW);          // Optional LED OFF
+    Serial.println("Cleaning complete.");
   }
 
-  http.end();
-} else {
-  Serial.println("WiFi not connected.");
-}
-// ===== Send to ThingSpeak =====
-if (WiFi.status() == WL_CONNECTED) {
-  HTTPClient http;
+  // ========== Firebase ==========
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    String firebaseUrl = String("https://solarsystem-2babe-default-rtdb.firebaseio.com//solarData.json?auth=ACOZE3BvabpPdNGuu83DAyVm2NkRlEzUg3bPgZWr");
 
-  String thingSpeakAPIKey = "UFJX6PHYTC441XUE";  // Your Write API key
+    String payload = "{";
+    payload += "\"dustDensity\":" + String(dust) + ",";
+    payload += "\"voltage\":" + String(loadVoltage) + ",";
+    payload += "\"probability\":" + String(prob) + ",";
+    payload += "\"prediction\":\"" + String(result) + "\"";
+    payload += "}";
 
-  // Convert prediction to numeric: 1 = Clean, 0 = Needs_cleaning
-  int predictionCode = (String(result) == "Clean") ? 1 : 0;
+    http.begin(firebaseUrl);
+    http.addHeader("Content-Type", "application/json");
 
-  String url = "http://api.thingspeak.com/update?api_key=" + thingSpeakAPIKey;
-  url += "&field1=" + String(dust, 2);
-  url += "&field2=" + String(loadVoltage, 2);
-  url += "&field3=" + String(prob, 4);
-  url += "&field4=" + String(predictionCode);  //  Send numeric value now
-
-  http.begin(url);
-  int httpCode = http.GET();
-
-  Serial.print("ThingSpeak Response: ");
-  Serial.println(httpCode);
-
-  if (httpCode > 0) {
-    Serial.println("ThingSpeak update success!");
+    int responseCode = http.POST(payload);
+    Serial.print("Firebase Response: ");
+    Serial.println(responseCode);
+    http.end();
   } else {
-    Serial.println("ThingSpeak update failed.");
+    Serial.println("WiFi not connected.");
   }
 
-  http.end();
-}
+  // ========== ThingSpeak ==========
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    String thingSpeakAPIKey = "UFJX6PHYTC441XUE";
+    int predictionCode = (String(result) == "Clean") ? 1 : 0;
+
+    String url = "http://api.thingspeak.com/update?api_key=" + thingSpeakAPIKey;
+    url += "&field1=" + String(dust, 2);
+    url += "&field2=" + String(loadVoltage, 2);
+    url += "&field3=" + String(prob, 4);
+    url += "&field4=" + String(predictionCode);
+
+    http.begin(url);
+    int httpCode = http.GET();
+    Serial.print("ThingSpeak Response: ");
+    Serial.println(httpCode);
+    http.end();
+  }
 
   Serial.println("-----------------------");
   delay(7000);
