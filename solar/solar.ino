@@ -1,17 +1,17 @@
 #include <Wire.h>
-// #include <Adafruit_INA219.h>  // Commented out
-#include <HTTPClient.h>  
+#include <Adafruit_INA219.h>
+#include <HTTPClient.h>
 #include <esp_heap_caps.h>
 #include <WiFi.h>
 
 // TensorFlow Lite Micro includes
-#include "tensorflow/lite/micro/micro_interpreter.h"
+#include "tensorflow/lite/micro/micro_interpreter.h"       
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "tensorflow/lite/version.h"
 
-#define WIFI_SSID "Wifi-79J"
-#define WIFI_PASSWORD "797979jjjj"
+#define WIFI_SSID "NTU FSD"
+#define WIFI_PASSWORD ""
 
 // Active-Low Relay Definitions
 #define RELAY_ON  LOW     // LOW = motor ON
@@ -20,8 +20,8 @@
 // === Pins & Constants ===
 const int dustLEDPin = 2;
 const int dustAnalogPin = 4;
-const int RELAY_PIN = 5;
-const int DEBUG_LED = 13;     // Optional: for testing relay status
+const int RELAY_PIN = 6;
+// const int DEBUG_LED = 13;
 const int SDA_PIN = 21;
 const int SCL_PIN = 19;
 
@@ -41,7 +41,9 @@ tflite::MicroInterpreter* interpreter;
 TfLiteTensor* input;
 TfLiteTensor* output;
 
-// Connect to WiFi
+// INA219 instance
+Adafruit_INA219 ina219;
+
 void connectWiFi() {
   WiFi.disconnect(true);
   delay(100);
@@ -66,23 +68,29 @@ void connectWiFi() {
 void setup() {
   Serial.begin(115200);
   delay(1000);
+   
 
+  //  Prevent brief relay ON at boot (for active-low relay)
+  digitalWrite(RELAY_PIN, RELAY_OFF);  // Set HIGH before pinMode
   pinMode(RELAY_PIN, OUTPUT);
-  digitalWrite(RELAY_PIN, RELAY_OFF);
 
-  pinMode(DEBUG_LED, OUTPUT); // Optional debug LED
-  digitalWrite(DEBUG_LED, LOW);
+  // If using debug LED again
+  // pinMode(DEBUG_LED, OUTPUT);
+  // digitalWrite(DEBUG_LED, LOW);
 
   connectWiFi();
 
-  if (!tensor_arena) {
-    Serial.println("Failed to allocate tensor arena in PSRAM!");
+  // === INA219 INIT === 
+  Wire.begin(SDA_PIN, SCL_PIN);
+  if (!ina219.begin()) {
+    Serial.println("⚠️ INA219 not found!");
     while (1);
   }
+
   if (!tensor_arena) {
-  Serial.println(" Failed to allocate tensor arena in PSRAM!");
-  while (1);
-}
+    Serial.println("Failed to allocate tensor arena!");
+    while (1);
+  }
 
   const tflite::Model* model = tflite::GetModel(model_tflite);
   if (model->version() != TFLITE_SCHEMA_VERSION) {
@@ -97,8 +105,7 @@ void setup() {
   resolver.AddQuantize();
   resolver.AddDequantize();
 
-  static tflite::MicroInterpreter static_interpreter(
-    model, resolver, tensor_arena, kTensorArenaSize);
+  static tflite::MicroInterpreter static_interpreter(model, resolver, tensor_arena, kTensorArenaSize);
   interpreter = &static_interpreter;
 
   if (interpreter->AllocateTensors() != kTfLiteOk) {
@@ -112,7 +119,6 @@ void setup() {
   Serial.println("System ready!");
 }
 
-// Dust sensor reading
 float readDustSensor() {
   digitalWrite(dustLEDPin, LOW);
   delayMicroseconds(280);
@@ -130,8 +136,10 @@ float readDustSensor() {
 void loop() {
   float dust = readDustSensor();
 
-  // Simulated voltage
-  float loadVoltage = 17.7;
+  // Read real voltage from INA219
+  float loadVoltage = ina219.getBusVoltage_V();  // Usually ~12V if supply is on
+  float current_mA = ina219.getCurrent_mA();
+  float power_mW = ina219.getPower_mW();
 
   float normDust = (dust - DUST_MEAN) / DUST_STD;
   float normVolt = (loadVoltage - VOLT_MEAN) / VOLT_STD;
@@ -149,24 +157,24 @@ void loop() {
 
   Serial.println("-----------------------");
   Serial.printf("Dust: %.2f µg/m³, Voltage: %.2f V\n", dust, loadVoltage);
+  Serial.printf("Current: %.2f mA, Power: %.2f mW\n", current_mA, power_mW);
   Serial.printf("Predicted probability: %.2f\n", prob);
   Serial.printf("Prediction: %s\n", result);
 
-  // ========== motor CONTROL ==========
-  if (prob < 0.5) { // or use: if (true) to force test
-    Serial.println("Triggering motor for cleaning...");
-    digitalWrite(RELAY_PIN, RELAY_ON);     // Turn motor ON
-    digitalWrite(DEBUG_LED, HIGH);         // Optional LED ON
+  if (prob < 0.5) {
+    Serial.println("⚙️ Triggering motor...");
+    digitalWrite(RELAY_PIN, RELAY_ON);
+    //digitalWrite(DEBUG_LED, HIGH);
     delay(10000);
-    digitalWrite(RELAY_PIN, RELAY_OFF);    // Turn motor OFF
-    digitalWrite(DEBUG_LED, LOW);          // Optional LED OFF
-    Serial.println("Cleaning complete.");
+    digitalWrite(RELAY_PIN, RELAY_OFF);
+    //digitalWrite(DEBUG_LED, LOW);
+    Serial.println("Cleaning done.");
   }
 
-  // ========== Firebase ==========
+  // === Firebase Update ===
   if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
-    String firebaseUrl = String("https://solarsystem-2babe-default-rtdb.firebaseio.com//solarData.json?auth=ACOZE3BvabpPdNGuu83DAyVm2NkRlEzUg3bPgZWr");
+    String firebaseUrl = "https://solarsystem-2babe-default-rtdb.firebaseio.com/solarData.json?auth=ACOZE3BvabpPdNGuu83DAyVm2NkRlEzUg3bPgZWr";
 
     String payload = "{";
     payload += "\"dustDensity\":" + String(dust) + ",";
@@ -177,19 +185,16 @@ void loop() {
 
     http.begin(firebaseUrl);
     http.addHeader("Content-Type", "application/json");
-
     int responseCode = http.POST(payload);
     Serial.print("Firebase Response: ");
     Serial.println(responseCode);
     http.end();
-  } else {
-    Serial.println("WiFi not connected.");
   }
 
-  // ========== ThingSpeak ==========
+  // === ThingSpeak Update ===
   if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
-    String thingSpeakAPIKey = "UFJX6PHYTC441XUE";
+    String thingSpeakAPIKey = "7CG2NLUXN0R9V5UC";
     int predictionCode = (String(result) == "Clean") ? 1 : 0;
 
     String url = "http://api.thingspeak.com/update?api_key=" + thingSpeakAPIKey;
